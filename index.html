@@ -50,6 +50,8 @@
    - ANNEE_DEBUT       : première promo (2015 -> table Promo_2015_2016)
    - TABLE_ELEVES      : identifiant de la table de synthèse
    - PREFIXE_PROMO     : les tables de promo commencent par ceci
+   - ORIGINE_GRIST    : adresse de votre instance Grist
+                         (ex. https://grist.apps.education.fr)
    - MODE_REF          : true  -> colonne Promos = liste de références
                                vers la table TABLE_PROMOS_REF (recommandé)
                          false -> colonne Promos = texte ("2015-2016, ...")
@@ -62,6 +64,7 @@
 var ANNEE_DEBUT = 2015;
 var TABLE_ELEVES = "Eleves";
 var PREFIXE_PROMO = "Promo_";
+var ORIGINE_GRIST = "https://grist.apps.education.fr";
 var MODE_REF = true;
 var TABLE_PROMOS_REF = "Promos";
 var FORCER_COLONNES = null;
@@ -414,7 +417,7 @@ async function synchroniser() {
 
 /* État initial + version (permet de vérifier que Grist charge bien
    la dernière version du fichier hébergé, sans cache). */
-var VERSION = "v5";
+var VERSION = "v6";
 document.getElementById("status").textContent = "Chargement…";
 document.getElementById("info").textContent = "Widget " + VERSION;
 
@@ -455,7 +458,8 @@ function demarrer() {
     try { origine = new URL(document.referrer).origin; } catch (e) { }
   }
   var essais = [];
-  if (origine && origine.indexOf("https://") === 0) {
+  if (ORIGINE_GRIST) essais.push(ORIGINE_GRIST + "/grist-plugin/grist-plugin.js");
+  if (origine && origine.indexOf("https://") === 0 && origine !== ORIGINE_GRIST) {
     essais.push(origine + "/grist-plugin/grist-plugin.js");
   }
   essais.push("https://docs.getgrist.com/grist-plugin/grist-plugin.js");
@@ -478,6 +482,6 @@ function demarrer() {
   essayer();
 })();
 </script>
-<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092" integrity="sha512-UKNk8GbxkABxKcXYuLkO16EleLGUkcvJWtpSNmExE0Too3ZaFAxTscNWEc1OdAv5/BikHawapSCaiD2XCmp+Bw==" nonce="AS/IINBnDnCD8cu00zzJgg==" data-cf-beacon='{"version":"2024.11.0","token":"36b4216ae2dc4d5488c249161e71fe1e","spa":2}' crossorigin="anonymous"></script>
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092" integrity="sha512-UKNk8GbxkABxKcXYuLkO16EleLGUkcvJWtpSNmExE0Too3ZaFAxTscNWEc1OdAv5/BikHawapSCaiD2XCmp+Bw==" nonce="9JYBd252OmeD3NojvxkiWw==" data-cf-beacon='{"version":"2024.11.0","token":"36b4216ae2dc4d5488c249161e71fe1e","spa":2}' crossorigin="anonymous"></script>
 </body>
 </html>

@@ -40,7 +40,7 @@
 </header>
 <table>
   <thead>
-    <tr><th>Nom</th><th>Prénom</th><th>Promos</th><th>Statut</th></tr>
+    <tr><th>Nom</th><th>Prénom</th><th>Promos</th><th>Tél.</th><th>Statut</th></tr>
   </thead>
   <tbody id="tbody"></tbody>
 </table>
@@ -58,7 +58,7 @@
                          false -> colonne Promos = texte
    - TABLE_PROMOS_REF : table des promos, une ligne par année
                         (ex. "2015-2016"), colonne "Annees"
-   - FORCER_COLONNES  : null (auto) ou {nom:"Nom", prenom:"Prénom", promos:"Promos"}
+   - FORCER_COLONNES  : null (auto) ou {nom:"Nom", prenom:"Prénom", promos:"Promos", tel:"Téléphone"}
    Les tables de promo sont détectées automatiquement via listTables()
    (toute table Promo_AAAA_BBBB compte), donc les futures promos
    seront prises en compte sans rien modifier.
@@ -151,6 +151,19 @@ function colParNom(fields, cible) {
   return null;
 }
 
+/* Détecte la colonne téléphone (Téléphone, Tel, Portable, GSM,
+   Mobile…) par mot-clé insensible aux accents/casse. */
+function colTel(fields) {
+  var ks = Object.keys(fields);
+  for (var i = 0; i < ks.length; i++) {
+    var n = norm(ks[i]);
+    if (n.indexOf("tel") !== -1 || n.indexOf("phone") !== -1 ||
+        n.indexOf("portable") !== -1 || n.indexOf("gsm") !== -1 ||
+        n.indexOf("mobile") !== -1) return ks[i];
+  }
+  return null;
+}
+
 /* Valeur brute d'une colonne liste de références -> [id, ...],
    ou null si la cellule est en erreur ou illisible. Formats acceptés :
    ["L", id1, id2, ...] (encodage Grist à plat), [id1, id2], ou texte JSON. */
@@ -207,6 +220,7 @@ async function analyser() {
   var promosLues = [];
   var errPromo = null;
   var colPromoRef = null;
+  var telPromoVu = false;
 
   /* 1. Lecture de toutes les tables de promo */
   var promos = await listerPromos();
@@ -219,21 +233,27 @@ async function analyser() {
     if (!rows.length) continue;
     var cNom = colParNom(rows[0].fields, "nom");
     var cPre = colParNom(rows[0].fields, "prenom");
+    var cTel = colTel(rows[0].fields);
     if (!cNom || !cPre) {
       document.getElementById("err").textContent +=
         "Colonnes Nom/Prénom introuvables dans " + p.id + " · ";
       continue;
     }
+    if (cTel) telPromoVu = true;
     colPromoRef = { nom: cNom, prenom: cPre };
     for (var j = 0; j < rows.length; j++) {
       var r = rows[j];
       var nom = String(r.fields[cNom] == null ? "" : r.fields[cNom]).trim();
       var prenom = String(r.fields[cPre] == null ? "" : r.fields[cPre]).trim();
+      var tel = cTel ? String(r.fields[cTel] == null ? "" : r.fields[cTel]).trim() : "";
       if (!nom && !prenom) continue;
       var cle = norm(nom) + "|" + norm(prenom);
       if (!tous.has(cle)) tous.set(cle, { nom: nom, prenom: prenom, promos: [] });
       var fiche = tous.get(cle);
       if (fiche.promos.indexOf(p.annees) === -1) fiche.promos.push(p.annees);
+      /* Les promos sont parcourues de la plus ancienne à la plus
+         récente : on conserve le dernier numéro non vide connu. */
+      if (tel) fiche.tel = tel;
     }
   }
 
@@ -280,16 +300,18 @@ async function analyser() {
   }
   var tEleves = resE.lignes;
 
-  var cNom = "Nom", cPre = "Prénom", cPro = "Promos";
+  var cNom = "Nom", cPre = "Prénom", cPro = "Promos", cTel = null;
   var surs = false;
   if (FORCER_COLONNES) {
     cNom = FORCER_COLONNES.nom; cPre = FORCER_COLONNES.prenom; cPro = FORCER_COLONNES.promos;
+    if (FORCER_COLONNES.tel) cTel = FORCER_COLONNES.tel;
     surs = true;
   } else if (tEleves.length) {
     var f = tEleves[0].fields;
     cNom = colParNom(f, "nom") || (colPromoRef ? colPromoRef.nom : cNom);
     cPre = colParNom(f, "prenom") || (colPromoRef ? colPromoRef.prenom : cPre);
     cPro = colParNom(f, "promos") || cPro;
+    cTel = colTel(f);
     surs = true;
   } else if (colPromoRef) {
     cNom = colPromoRef.nom; cPre = colPromoRef.prenom;
@@ -312,9 +334,11 @@ async function analyser() {
         }
         anneesEx.sort();
       }
-      existants.set(cleE, { id: e.id, promos: anneesEx.join(", "), vide: anneesEx.length === 0 });
+      existants.set(cleE, { id: e.id, promos: anneesEx.join(", "), vide: anneesEx.length === 0,
+                            tel: cTel ? String(e.fields[cTel] == null ? "" : e.fields[cTel]).trim() : "" });
     } else {
-      existants.set(cleE, { id: e.id, promos: String(ePro == null ? "" : ePro).trim() });
+      existants.set(cleE, { id: e.id, promos: String(ePro == null ? "" : ePro).trim(),
+                            tel: cTel ? String(e.fields[cTel] == null ? "" : e.fields[cTel]).trim() : "" });
     }
   }
 
@@ -324,14 +348,19 @@ async function analyser() {
   tous.forEach(function (e, cle) {
     e.promos.sort();
     var promosTxt = e.promos.join(", ");
+    var tel = e.tel || "";
     var ex = existants.get(cle);
     var statut = "ok";
     var id = null;
     if (!ex) { statut = "nouveau"; ajouts++; }
-    else if (MODE_REF ? (ex.vide || ex.promos !== promosTxt) : ex.promos !== promosTxt) {
-      statut = "maj"; majs++; id = ex.id;
+    else {
+      var majPromos = MODE_REF ? (ex.vide || ex.promos !== promosTxt) : ex.promos !== promosTxt;
+      /* Mise à jour du téléphone seulement si un numéro non vide est
+         connu dans les promos et diffère de la valeur actuelle. */
+      var majTel = !!tel && tel !== (ex.tel || "");
+      if (majPromos || majTel) { statut = "maj"; majs++; id = ex.id; }
     }
-    lignes.push({ nom: e.nom, prenom: e.prenom, promos: promosTxt, statut: statut, id: id });
+    lignes.push({ nom: e.nom, prenom: e.prenom, promos: promosTxt, tel: tel, statut: statut, id: id });
   });
   lignes.sort(function (a, b) {
     return a.nom.localeCompare(b.nom, "fr") || a.prenom.localeCompare(b.prenom, "fr");
@@ -339,7 +368,8 @@ async function analyser() {
 
   etat = {
     lignes: lignes, ajouts: ajouts, majs: majs, promosLues: promosLues,
-    colIds: { nom: cNom, prenom: cPre, promos: cPro },
+    colIds: { nom: cNom, prenom: cPre, promos: cPro, tel: cTel },
+    telPromo: telPromoVu,
     pret: true, surs: surs,
     refAnnees: refAnnees, refIds: refIds, colAnnees: colAnnees,
     promosManquantes: promosManquantes
@@ -359,17 +389,23 @@ function afficher() {
   };
   document.getElementById("tbody").innerHTML = lignes.map(function (l) {
     return "<tr><td>" + esc(l.nom) + "</td><td>" + esc(l.prenom) +
-      "</td><td>" + esc(l.promos) + "</td><td>" + badges[l.statut] + "</td></tr>";
+      "</td><td>" + esc(l.promos) + "</td><td>" + esc(l.tel || "") +
+      "</td><td>" + badges[l.statut] + "</td></tr>";
   }).join("");
   document.getElementById("status").textContent =
     etat.ajouts + " à ajouter · " + etat.majs + " à mettre à jour · " +
     etat.lignes.length + " élève(s) au total";
-  document.getElementById("info").textContent = etat.promosLues.length
+  var infoTxt = etat.promosLues.length
     ? "Widget " + VERSION + " · Promos lues : " + etat.promosLues[0] + " → " + etat.promosLues[etat.promosLues.length - 1] +
       " (" + etat.promosLues.length + " tables)" +
       (etat.promosManquantes.length ? " · " + etat.promosManquantes.length +
         " ligne(s) à créer dans la table " + TABLE_PROMOS_REF : "")
     : "Aucune table de promo trouvée";
+  if (etat.telPromo && !(etat.colIds && etat.colIds.tel)) {
+    infoTxt += " · Numéros détectés dans les promos : ajoutez une colonne « Téléphone » (Texte) dans " +
+      TABLE_ELEVES + " pour les recopier, puis cliquez sur ↻";
+  }
+  document.getElementById("info").textContent = infoTxt;
   var btn = document.getElementById("sync");
   var n = etat.ajouts + etat.majs;
   btn.disabled = !n && !etat.promosManquantes.length;
@@ -415,6 +451,7 @@ async function ecrire(tableId, ajouts, maj) {
 
 function construireLot(colIds) {
   var ajouts = [], maj = [];
+  var ecrireTel = !!colIds.tel;
   etat.lignes.forEach(function (l) {
     var f;
     if (l.statut === "nouveau") {
@@ -422,10 +459,12 @@ function construireLot(colIds) {
       f[colIds.nom] = l.nom;
       f[colIds.prenom] = l.prenom;
       f[colIds.promos] = valeurPromos(l.promos);
+      if (ecrireTel && l.tel) f[colIds.tel] = l.tel;
       ajouts.push({ fields: f });
     } else if (l.statut === "maj") {
       f = {};
       f[colIds.promos] = valeurPromos(l.promos);
+      if (ecrireTel && l.tel) f[colIds.tel] = l.tel;
       maj.push({ id: l.id, fields: f });
     }
   });
@@ -460,7 +499,8 @@ async function synchroniser() {
       await ecrire(TABLE_ELEVES, lot.ajouts, lot.maj);
     } catch (e) {
       if (!etat.surs) {
-        var lot2 = construireLot({ nom: "Nom", prenom: "Prenom", promos: "Promos" });
+        var lot2 = construireLot({ nom: "Nom", prenom: "Prenom", promos: "Promos",
+                                    tel: etat.colIds && etat.colIds.tel });
         await ecrire(TABLE_ELEVES, lot2.ajouts, lot2.maj);
       } else {
         throw e;
@@ -480,7 +520,7 @@ async function synchroniser() {
 
 /* État initial + version (permet de vérifier que Grist charge bien
    la dernière version du fichier hébergé, sans cache). */
-var VERSION = "v10";
+var VERSION = "v11";
 document.getElementById("status").textContent = "Chargement…";
 document.getElementById("info").textContent = "Widget " + VERSION;
 
@@ -546,6 +586,6 @@ function demarrer() {
   essayer();
 })();
 </script>
-<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092" integrity="sha512-UKNk8GbxkABxKcXYuLkO16EleLGUkcvJWtpSNmExE0Too3ZaFAxTscNWEc1OdAv5/BikHawapSCaiD2XCmp+Bw==" nonce="Qm+SaToE9J97f2jV0GMoqA==" data-cf-beacon='{"version":"2024.11.0","token":"36b4216ae2dc4d5488c249161e71fe1e","spa":2}' crossorigin="anonymous"></script>
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092" integrity="sha512-UKNk8GbxkABxKcXYuLkO16EleLGUkcvJWtpSNmExE0Too3ZaFAxTscNWEc1OdAv5/BikHawapSCaiD2XCmp+Bw==" nonce="aYKVflT2TPsmd01IwFR8IQ==" data-cf-beacon='{"version":"2024.11.0","token":"36b4216ae2dc4d5488c249161e71fe1e","spa":2}' crossorigin="anonymous"></script>
 </body>
 </html>

@@ -4,7 +4,6 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Synchronisation des élèves</title>
-<script src="https://docs.getgrist.com/grist-plugin/grist-plugin.js"></script>
 <style>
   :root { font-family: system-ui, -apple-system, sans-serif; }
   body { margin: 0; background: #f8fafc; color: #111827; font-size: 13px; }
@@ -415,29 +414,70 @@ async function synchroniser() {
 
 /* État initial + version (permet de vérifier que Grist charge bien
    la dernière version du fichier hébergé, sans cache). */
-var VERSION = "v4";
-document.getElementById("status").textContent = "Chargement\u2026";
+var VERSION = "v5";
+document.getElementById("status").textContent = "Chargement…";
 document.getElementById("info").textContent = "Widget " + VERSION;
-setTimeout(function () {
-  if (!etat.pret) {
-    document.getElementById("err").textContent =
-      "Chargement en attente \u2014 tr\u00e8s probablement l\u2019autorisation \u00ab acc\u00e8s complet " +
-      "au document \u00bb n\u2019a pas \u00e9t\u00e9 accord\u00e9e au widget : acceptez la banni\u00e8re affich\u00e9e " +
-      "au-dessus du widget (ou son menu \u22ee), puis cliquez sur \u21bb.";
-  }
-}, 6000);
 
 document.getElementById("q").addEventListener("input", afficher);
 document.getElementById("refresh").addEventListener("click", analyser);
 document.getElementById("sync").addEventListener("click", synchroniser);
 
-/* Accès complet : lecture de toutes les tables de promo + écriture
-   dans les tables Eleves et Promos. Rafraîchit l'aperçu quand une
-   table liée change. */
-grist.ready({ requiredAccess: "full" });
-grist.onRecords(analyser);
-analyser();
+/* Démarrage une fois l'API Grist chargée : accès complet (lecture
+   de toutes les tables de promo + écriture dans Eleves et Promos). */
+var origineUtilisee = "?";
+
+function demarrer() {
+  grist.ready({ requiredAccess: "full" });
+  grist.onRecords(analyser);
+  analyser();
+  setTimeout(function () {
+    if (!etat.pret) {
+      document.getElementById("err").textContent =
+        "Chargement en attente — accordez au widget l'« accès complet au document » " +
+        "(bannière au-dessus du widget ou son menu ⋮), puis cliquez sur ↻. " +
+        "API Grist chargée depuis : " + origineUtilisee;
+    }
+  }, 8000);
+}
+
+/* Chargement de l'API Grist depuis l'origine du document Grist
+   (détectée automatiquement), avec repli sur docs.getgrist.com.
+   Indispensable si votre Grist est auto-hébergé ou hébergé
+   ailleurs que sur getgrist.com. */
+(function () {
+  var origine = null;
+  try {
+    if (window.location.ancestorOrigins && window.location.ancestorOrigins.length) {
+      origine = window.location.ancestorOrigins[0];
+    }
+  } catch (e) { }
+  if (!origine && document.referrer) {
+    try { origine = new URL(document.referrer).origin; } catch (e) { }
+  }
+  var essais = [];
+  if (origine && origine.indexOf("https://") === 0) {
+    essais.push(origine + "/grist-plugin/grist-plugin.js");
+  }
+  essais.push("https://docs.getgrist.com/grist-plugin/grist-plugin.js");
+  var i = 0;
+  function essayer() {
+    if (i >= essais.length) {
+      document.getElementById("err").textContent =
+        "Impossible de charger l'API Grist. Origine détectée : " + (origine || "inconnue");
+      return;
+    }
+    origineUtilisee = essais[i];
+    var s = document.createElement("script");
+    s.src = essais[i];
+    s.onload = function () {
+      if (window.grist) { demarrer(); } else { i++; essayer(); }
+    };
+    s.onerror = function () { i++; essayer(); };
+    document.head.appendChild(s);
+  }
+  essayer();
+})();
 </script>
-<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092" integrity="sha512-UKNk8GbxkABxKcXYuLkO16EleLGUkcvJWtpSNmExE0Too3ZaFAxTscNWEc1OdAv5/BikHawapSCaiD2XCmp+Bw==" nonce="lt5gk6KPVB6rdpA+4777IA==" data-cf-beacon='{"version":"2024.11.0","token":"36b4216ae2dc4d5488c249161e71fe1e","spa":2}' crossorigin="anonymous"></script>
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092" integrity="sha512-UKNk8GbxkABxKcXYuLkO16EleLGUkcvJWtpSNmExE0Too3ZaFAxTscNWEc1OdAv5/BikHawapSCaiD2XCmp+Bw==" nonce="AS/IINBnDnCD8cu00zzJgg==" data-cf-beacon='{"version":"2024.11.0","token":"36b4216ae2dc4d5488c249161e71fe1e","spa":2}' crossorigin="anonymous"></script>
 </body>
 </html>

@@ -47,24 +47,26 @@
 <script>
 /* ================================================================
    CONFIGURATION — à adapter si besoin
-   - ANNEE_DEBUT       : première promo (2015 -> table Promo_2015_2016)
-   - TABLE_ELEVES      : identifiant de la table de synthèse
-   - PREFIXE_PROMO     : les tables de promo commencent par ceci
+   - ANNEE_DEBUT      : première promo (repli si listTables indisponible)
+   - TABLE_ELEVES     : identifiant de la table de synthèse
+   - PREFIXE_PROMO    : motif des tables de promo : Promo_2015_2016
    - ORIGINE_GRIST    : adresse de votre instance Grist
-                         (ex. https://grist.apps.education.fr)
-   - MODE_REF          : true  -> colonne Promos = liste de références
-                               vers la table TABLE_PROMOS_REF (recommandé)
-                         false -> colonne Promos = texte ("2015-2016, ...")
-   - TABLE_PROMOS_REF  : table des promos, une ligne par année
-                         (ex. "2015-2016"), colonne "Annees"
-   - FORCER_COLONNES   : null (auto) ou {nom:"Nom", prenom:"Prénom", promos:"Promos"}
-   Les tables de promo des années futures (Promo_2026_2027, etc.)
-   sont détectées automatiquement dès leur création.
+                        (sert à charger l'API Grist depuis votre
+                        instance ; le repli est docs.getgrist.com)
+   - MODE_REF         : true  -> colonne Promos = liste de références
+                               vers la table TABLE_PROMOS_REF
+                         false -> colonne Promos = texte
+   - TABLE_PROMOS_REF : table des promos, une ligne par année
+                        (ex. "2015-2016"), colonne "Annees"
+   - FORCER_COLONNES  : null (auto) ou {nom:"Nom", prenom:"Prénom", promos:"Promos"}
+   Les tables de promo sont détectées automatiquement via listTables()
+   (toute table Promo_AAAA_BBBB compte), donc les futures promos
+   seront prises en compte sans rien modifier.
    ================================================================ */
 var ANNEE_DEBUT = 2015;
 var TABLE_ELEVES = "Eleves";
 var PREFIXE_PROMO = "Promo_";
-var ORIGINE_GRIST = "https://grist.apps.education.fr";
+var ORIGINE_GRIST = "https://grist.numerique.gouv.fr";
 var MODE_REF = true;
 var TABLE_PROMOS_REF = "Promos";
 var FORCER_COLONNES = null;
@@ -84,8 +86,25 @@ function esc(s) {
     return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
   });
 }
+function detailErr(e) {
+  if (!e) return "";
+  return " Détail : " + (e.message || String(e));
+}
 
-function listePromos() {
+/* Tables de promo : détection automatique via listTables(),
+   avec repli sur une plage d'années. */
+async function listerPromos() {
+  try {
+    var tables = await grist.docApi.listTables();
+    var motif = new RegExp("^" + PREFIXE_PROMO + "(\\d{4})_(\\d{4})$");
+    var res = [];
+    for (var i = 0; i < tables.length; i++) {
+      var m = String(tables[i]).match(motif);
+      if (m) res.push({ id: tables[i], annees: m[1] + "-" + m[2] });
+    }
+    res.sort(function (a, b) { return a.annees < b.annees ? -1 : 1; });
+    if (res.length) return res;
+  } catch (e) { }
   var anneeMax = new Date().getFullYear();
   var t = [];
   for (var a = ANNEE_DEBUT; a <= anneeMax; a++) {
@@ -94,25 +113,34 @@ function listePromos() {
   return t;
 }
 
-/* Lit une table. Retourne {ok:true, lignes:[...]} ou {ok:false, err:...}. */
+/* Lit une table. fetchTable renvoie un format « colonnes »
+   ({colId: [valeurs]}, colonne 'id' incluse) ; on le transforme
+   en lignes [{id, fields}]. Retourne {ok, lignes} ou {ok:false, err}. */
 async function lireTable(tableId) {
   var derniereErreur = null;
-  if (grist.docApi.fetchRecords) {
-    try {
-      var recs = await grist.docApi.fetchRecords(tableId);
-      return { ok: true, lignes: recs.map(function (r) { return { id: r.id, fields: r.fields }; }) };
-    } catch (e) { derniereErreur = e; }
-  }
   try {
-    var rows = await grist.docApi.fetchTable(tableId);
-    return { ok: true, lignes: rows.map(function (r) { return { id: r.id, fields: r }; }) };
+    var data = await grist.docApi.fetchTable(tableId);
+    var lignes = [];
+    if (Array.isArray(data)) {
+      for (var i = 0; i < data.length; i++) {
+        var r = data[i];
+        lignes.push({ id: r.id, fields: r });
+      }
+    } else if (data && data.id) {
+      var n = data.id.length;
+      for (var j = 0; j < n; j++) {
+        var f = {};
+        for (var c in data) {
+          if (Object.prototype.hasOwnProperty.call(data, c) && c !== "id" && c !== "manualSort") {
+            f[c] = data[c][j];
+          }
+        }
+        lignes.push({ id: data.id[j], fields: f });
+      }
+    }
+    return { ok: true, lignes: lignes };
   } catch (e) { derniereErreur = e; }
   return { ok: false, err: derniereErreur };
-}
-
-function detailErr(e) {
-  if (!e) return "";
-  return " Détail : " + (e.message || String(e));
 }
 
 function colParNom(fields, cible) {
@@ -159,7 +187,7 @@ async function chargerRefPromos() {
       ids.set(t[i].id, a);
     }
   }
-  return { annees: annees, ids: ids, colAnnees: colAnnees };
+  return { annees: annees, ids: ids, colAnnees: colAnnees || "Annees" };
 }
 
 async function analyser() {
@@ -170,7 +198,7 @@ async function analyser() {
   var colPromoRef = null;
 
   /* 1. Lecture de toutes les tables de promo */
-  var promos = listePromos();
+  var promos = await listerPromos();
   for (var i = 0; i < promos.length; i++) {
     var p = promos[i];
     var res = await lireTable(p.id);
@@ -199,7 +227,7 @@ async function analyser() {
   }
 
   /* Aucune table de promo lue alors que des erreurs sont survenues :
-     très probablement un problème d'accès (ou d'identifiants). */
+     très probablement un problème d'accès ou d'identifiants. */
   if (!promosLues.length && errPromo) {
     document.getElementById("err").textContent =
       "Aucune table de promo n'a pu être lue — vérifiez que le widget a bien " +
@@ -347,28 +375,34 @@ function idsPromos(promosTxt) {
   return ids;
 }
 
-function construireActions(colIds) {
-  var actions = [];
+/* Écritures : ajouts [{fields}], mises à jour [{id, fields}]. */
+async function ecrire(tableId, ajouts, maj) {
+  var t = grist.getTable(tableId);
+  for (var i = 0; i < ajouts.length; i += 100) {
+    await t.create(ajouts.slice(i, i + 100));
+  }
+  for (var j = 0; j < maj.length; j += 100) {
+    await t.update(maj.slice(j, j + 100));
+  }
+}
+
+function construireLot(colIds) {
+  var ajouts = [], maj = [];
   etat.lignes.forEach(function (l) {
+    var f;
     if (l.statut === "nouveau") {
-      var f = {};
+      f = {};
       f[colIds.nom] = l.nom;
       f[colIds.prenom] = l.prenom;
       f[colIds.promos] = MODE_REF ? idsPromos(l.promos) : l.promos;
-      actions.push(["AddRecord", TABLE_ELEVES, null, f]);
+      ajouts.push({ fields: f });
     } else if (l.statut === "maj") {
-      var u = {};
-      u[colIds.promos] = MODE_REF ? idsPromos(l.promos) : l.promos;
-      actions.push(["UpdateRecord", TABLE_ELEVES, l.id, u]);
+      f = {};
+      f[colIds.promos] = MODE_REF ? idsPromos(l.promos) : l.promos;
+      maj.push({ id: l.id, fields: f });
     }
   });
-  return actions;
-}
-
-async function appliquer(tableId, actions) {
-  for (var i = 0; i < actions.length; i += 50) {
-    await grist.docApi.applyUpdateActions(actions.slice(i, i + 50));
-  }
+  return { ajouts: ajouts, maj: maj };
 }
 
 async function synchroniser() {
@@ -381,12 +415,12 @@ async function synchroniser() {
   try {
     /* 1. Créer les lignes manquantes dans la table des promos */
     if (MODE_REF && etat.promosManquantes.length) {
-      var actionsP = etat.promosManquantes.map(function (a) {
+      var nouvelles = etat.promosManquantes.map(function (a) {
         var fp = {};
         fp[etat.colAnnees] = a;
-        return ["AddRecord", TABLE_PROMOS_REF, null, fp];
+        return { fields: fp };
       });
-      await grist.docApi.applyUpdateActions(actionsP);
+      await ecrire(TABLE_PROMOS_REF, nouvelles, []);
       var ref = await chargerRefPromos();
       if (ref && !ref.absent) {
         etat.refAnnees = ref.annees;
@@ -395,10 +429,12 @@ async function synchroniser() {
     }
     /* 2. Ajouter / mettre à jour les élèves */
     try {
-      await appliquer(TABLE_ELEVES, construireActions(etat.colIds));
+      var lot = construireLot(etat.colIds);
+      await ecrire(TABLE_ELEVES, lot.ajouts, lot.maj);
     } catch (e) {
       if (!etat.surs) {
-        await appliquer(TABLE_ELEVES, construireActions({ nom: "Nom", prenom: "Prenom", promos: "Promos" }));
+        var lot2 = construireLot({ nom: "Nom", prenom: "Prenom", promos: "Promos" });
+        await ecrire(TABLE_ELEVES, lot2.ajouts, lot2.maj);
       } else {
         throw e;
       }
@@ -408,7 +444,7 @@ async function synchroniser() {
       " — vérifiez la table « " + TABLE_ELEVES +
       " » (colonnes Nom, Prénom, Promos) et, en mode liste de références, " +
       "que la colonne Promos est bien de type « Reference List » vers « " +
-      TABLE_PROMOS_REF + " ».";
+      TABLE_PROMOS_REF + " »." + detailErr(e);
     await analyser();
     return;
   }
@@ -417,7 +453,7 @@ async function synchroniser() {
 
 /* État initial + version (permet de vérifier que Grist charge bien
    la dernière version du fichier hébergé, sans cache). */
-var VERSION = "v6";
+var VERSION = "v7";
 document.getElementById("status").textContent = "Chargement…";
 document.getElementById("info").textContent = "Widget " + VERSION;
 
@@ -445,8 +481,8 @@ function demarrer() {
 
 /* Chargement de l'API Grist depuis l'origine du document Grist
    (détectée automatiquement), avec repli sur docs.getgrist.com.
-   Indispensable si votre Grist est auto-hébergé ou hébergé
-   ailleurs que sur getgrist.com. */
+   NB : l'URL correcte se termine par /grist-plugin-api.js
+   (l'ancienne URL /grist-plugin/grist-plugin.js n'existe plus). */
 (function () {
   var origine = null;
   try {
@@ -458,16 +494,17 @@ function demarrer() {
     try { origine = new URL(document.referrer).origin; } catch (e) { }
   }
   var essais = [];
-  if (ORIGINE_GRIST) essais.push(ORIGINE_GRIST + "/grist-plugin/grist-plugin.js");
+  if (ORIGINE_GRIST) essais.push(ORIGINE_GRIST + "/grist-plugin-api.js");
   if (origine && origine.indexOf("https://") === 0 && origine !== ORIGINE_GRIST) {
-    essais.push(origine + "/grist-plugin/grist-plugin.js");
+    essais.push(origine + "/grist-plugin-api.js");
   }
-  essais.push("https://docs.getgrist.com/grist-plugin/grist-plugin.js");
+  essais.push("https://docs.getgrist.com/grist-plugin-api.js");
   var i = 0;
   function essayer() {
     if (i >= essais.length) {
       document.getElementById("err").textContent =
-        "Impossible de charger l'API Grist. Origine détectée : " + (origine || "inconnue");
+        "Impossible de charger l'API Grist. Origine détectée : " + (origine || "inconnue") +
+        ". Adresses essayées : " + essais.join(", ");
       return;
     }
     origineUtilisee = essais[i];
@@ -482,6 +519,6 @@ function demarrer() {
   essayer();
 })();
 </script>
-<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092" integrity="sha512-UKNk8GbxkABxKcXYuLkO16EleLGUkcvJWtpSNmExE0Too3ZaFAxTscNWEc1OdAv5/BikHawapSCaiD2XCmp+Bw==" nonce="9JYBd252OmeD3NojvxkiWw==" data-cf-beacon='{"version":"2024.11.0","token":"36b4216ae2dc4d5488c249161e71fe1e","spa":2}' crossorigin="anonymous"></script>
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092" integrity="sha512-UKNk8GbxkABxKcXYuLkO16EleLGUkcvJWtpSNmExE0Too3ZaFAxTscNWEc1OdAv5/BikHawapSCaiD2XCmp+Bw==" nonce="T6ukHoXz9wlZBAO8zKQ+ng==" data-cf-beacon='{"version":"2024.11.0","token":"36b4216ae2dc4d5488c249161e71fe1e","spa":2}' crossorigin="anonymous"></script>
 </body>
 </html>

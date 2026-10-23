@@ -159,7 +159,10 @@ function versListeIds(brut) {
   if (Array.isArray(brut)) {
     if (brut.length && brut[0] === "L") return brut.slice(1);
     if (brut.length && brut[0] === "E") return null;
-    if (brut.length && brut[0] === "r") return null;
+    if (brut.length && brut[0] === "r") {
+      /* ["r", tableId, [ids]] : encodage RecordSet (versions récentes) */
+      return Array.isArray(brut[2]) ? brut[2] : [];
+    }
     return brut;
   }
   if (typeof brut === "string") {
@@ -383,12 +386,20 @@ function idsPromos(promosTxt) {
   return ids;
 }
 
-/* Valeur de la colonne Promos : en mode liste de références, la
-   valeur doit suivre l'encodage À PLAT de Grist : ["L", id1, id2, ...]
-   (cf. objtypes.py : ['L'] + items ; PAS ["L", [id1, id2]] imbriqué,
-   et pas [id1, id2] brut — les deux produisent des cellules en erreur). */
+/* Valeur de la colonne Promos (mode liste de références) : une CHAÎNE
+   JSON « [3, 7] » contenant les ids de lignes (entiers) de la table des
+   promos. C'est le seul format accepté par toutes les versions du moteur
+   Grist : le code source (column.py, ReferenceListColumn.set, et
+   usertypes.py, ReferenceList.do_convert) parse au json.loads les chaînes
+   commençant par « [ », alors qu'une liste ["L", ...] ou [id, id] « nue »
+   est stockée telle quelle ou rejetée selon la version — d'où les cellules
+   #KeyError ou [<objtypes.RaisedException ...>] des versions précédentes. */
 function valeurPromos(promosTxt) {
-  return MODE_REF ? ["L"].concat(idsPromos(promosTxt)) : promosTxt;
+  if (!MODE_REF) return promosTxt;
+  var ids = idsPromos(promosTxt).map(Number).filter(function (x) {
+    return typeof x === "number" && isFinite(x) && Math.floor(x) === x;
+  });
+  return JSON.stringify(ids);
 }
 
 /* Écritures : ajouts [{fields}], mises à jour [{id, fields}]. */
@@ -469,7 +480,7 @@ async function synchroniser() {
 
 /* État initial + version (permet de vérifier que Grist charge bien
    la dernière version du fichier hébergé, sans cache). */
-var VERSION = "v9";
+var VERSION = "v10";
 document.getElementById("status").textContent = "Chargement…";
 document.getElementById("info").textContent = "Widget " + VERSION;
 
@@ -535,6 +546,6 @@ function demarrer() {
   essayer();
 })();
 </script>
-<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092" integrity="sha512-UKNk8GbxkABxKcXYuLkO16EleLGUkcvJWtpSNmExE0Too3ZaFAxTscNWEc1OdAv5/BikHawapSCaiD2XCmp+Bw==" nonce="MhjqrRJ+HEDhlXIlzvyG2w==" data-cf-beacon='{"version":"2024.11.0","token":"36b4216ae2dc4d5488c249161e71fe1e","spa":2}' crossorigin="anonymous"></script>
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092" integrity="sha512-UKNk8GbxkABxKcXYuLkO16EleLGUkcvJWtpSNmExE0Too3ZaFAxTscNWEc1OdAv5/BikHawapSCaiD2XCmp+Bw==" nonce="Qm+SaToE9J97f2jV0GMoqA==" data-cf-beacon='{"version":"2024.11.0","token":"36b4216ae2dc4d5488c249161e71fe1e","spa":2}' crossorigin="anonymous"></script>
 </body>
 </html>

@@ -92,18 +92,25 @@ function listePromos() {
   return t;
 }
 
-/* Lit une table : [{id, fields:{colId: valeur}}], ou null si absente. */
+/* Lit une table. Retourne {ok:true, lignes:[...]} ou {ok:false, err:...}. */
 async function lireTable(tableId) {
-  try {
-    if (grist.docApi.fetchRecords) {
+  var derniereErreur = null;
+  if (grist.docApi.fetchRecords) {
+    try {
       var recs = await grist.docApi.fetchRecords(tableId);
-      return recs.map(function (r) { return { id: r.id, fields: r.fields }; });
-    }
-  } catch (e) { return null; }
+      return { ok: true, lignes: recs.map(function (r) { return { id: r.id, fields: r.fields }; }) };
+    } catch (e) { derniereErreur = e; }
+  }
   try {
     var rows = await grist.docApi.fetchTable(tableId);
-    return rows.map(function (r) { return { id: r.id, fields: r }; });
-  } catch (e) { return null; }
+    return { ok: true, lignes: rows.map(function (r) { return { id: r.id, fields: r }; }) };
+  } catch (e) { derniereErreur = e; }
+  return { ok: false, err: derniereErreur };
+}
+
+function detailErr(e) {
+  if (!e) return "";
+  return " Détail : " + (e.message || String(e));
 }
 
 function colParNom(fields, cible) {
@@ -130,10 +137,11 @@ function versListeIds(brut) {
   return null;
 }
 
-/* Charge la table des promos : {annees->id, id->annees, colAnnees} ou null. */
+/* Charge la table des promos : {annees->id, id->annees, colAnnees} ou {absent:...}. */
 async function chargerRefPromos() {
-  var t = await lireTable(TABLE_PROMOS_REF);
-  if (!t) return null;
+  var res = await lireTable(TABLE_PROMOS_REF);
+  if (!res.ok) return { absent: true, err: res.err };
+  var t = res.lignes;
   var colAnnees = null;
   var annees = new Map();
   var ids = new Map();
@@ -156,15 +164,17 @@ async function analyser() {
   document.getElementById("err").textContent = "";
   var tous = new Map();
   var promosLues = [];
+  var errPromo = null;
   var colPromoRef = null;
 
   /* 1. Lecture de toutes les tables de promo */
   var promos = listePromos();
   for (var i = 0; i < promos.length; i++) {
     var p = promos[i];
-    var rows = await lireTable(p.id);
-    if (!rows) continue; /* table pas (encore) créée : ignorée */
+    var res = await lireTable(p.id);
+    if (!res.ok) { if (!errPromo) errPromo = res.err; continue; }
     promosLues.push(p.annees);
+    var rows = res.lignes;
     if (!rows.length) continue;
     var cNom = colParNom(rows[0].fields, "nom");
     var cPre = colParNom(rows[0].fields, "prenom");
@@ -186,6 +196,16 @@ async function analyser() {
     }
   }
 
+  /* Aucune table de promo lue alors que des erreurs sont survenues :
+     très probablement un problème d'accès (ou d'identifiants). */
+  if (!promosLues.length && errPromo) {
+    document.getElementById("err").textContent =
+      "Aucune table de promo n'a pu être lue — vérifiez que le widget a bien " +
+      "« l'accès complet au document » (menu ⋮ du widget) et que les tables " +
+      "s'appellent Promo_2015_2016, etc." + detailErr(errPromo);
+    return;
+  }
+
   /* 2. Table des promos (mode liste de références) */
   var refAnnees = new Map();
   var refIds = new Map();
@@ -193,10 +213,11 @@ async function analyser() {
   var promosManquantes = [];
   if (MODE_REF) {
     var ref = await chargerRefPromos();
-    if (!ref) {
+    if (!ref || ref.absent) {
       document.getElementById("err").textContent =
-        "Table « " + TABLE_PROMOS_REF + " » introuvable — créez-la (une colonne « Annees », " +
-        "une ligne par promo ; les lignes sont ajoutées automatiquement) puis réessayez.";
+        "Table « " + TABLE_PROMOS_REF + " » inaccessible — vérifiez son identifiant EXACT " +
+        "(bouton « Raw Data » en bas du document ; essayé : « " + TABLE_PROMOS_REF + " »)." +
+        " S'il diffère, corrigez TABLE_PROMOS_REF en tête du script." + detailErr(ref && ref.err);
       return;
     }
     refAnnees = ref.annees;
@@ -208,12 +229,15 @@ async function analyser() {
   }
 
   /* 3. Lecture de la table de synthèse */
-  var tEleves = await lireTable(TABLE_ELEVES);
-  if (!tEleves) {
+  var resE = await lireTable(TABLE_ELEVES);
+  if (!resE.ok) {
     document.getElementById("err").textContent =
-      "Table « " + TABLE_ELEVES + " » introuvable — créez-la dans le document puis réessayez.";
+      "Table « " + TABLE_ELEVES + " » inaccessible — vérifiez son identifiant EXACT " +
+      "(bouton « Raw Data » en bas du document ; essayé : « " + TABLE_ELEVES + " »)." +
+      " S'il diffère, corrigez TABLE_ELEVES en tête du script." + detailErr(resE.err);
     return;
   }
+  var tEleves = resE.lignes;
 
   var cNom = "Nom", cPre = "Prénom", cPro = "Promos";
   var surs = false;
@@ -362,7 +386,7 @@ async function synchroniser() {
       });
       await grist.docApi.applyUpdateActions(actionsP);
       var ref = await chargerRefPromos();
-      if (ref) {
+      if (ref && !ref.absent) {
         etat.refAnnees = ref.annees;
         etat.refIds = ref.ids;
       }
@@ -400,6 +424,6 @@ grist.ready({ requiredAccess: "full" });
 grist.onRecords(analyser);
 analyser();
 </script>
-<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092" integrity="sha512-UKNk8GbxkABxKcXYuLkO16EleLGUkcvJWtpSNmExE0Too3ZaFAxTscNWEc1OdAv5/BikHawapSCaiD2XCmp+Bw==" nonce="YQQK5wa2jgJRujUWSZSwPQ==" data-cf-beacon='{"version":"2024.11.0","token":"36b4216ae2dc4d5488c249161e71fe1e","spa":2}' crossorigin="anonymous"></script>
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092" integrity="sha512-UKNk8GbxkABxKcXYuLkO16EleLGUkcvJWtpSNmExE0Too3ZaFAxTscNWEc1OdAv5/BikHawapSCaiD2XCmp+Bw==" nonce="DX4fgb6D58VLqHiFvAn3pA==" data-cf-beacon='{"version":"2024.11.0","token":"36b4216ae2dc4d5488c249161e71fe1e","spa":2}' crossorigin="anonymous"></script>
 </body>
 </html>

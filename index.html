@@ -375,6 +375,13 @@ function idsPromos(promosTxt) {
   return ids;
 }
 
+/* Valeur de la colonne Promos : en mode liste de références,
+   la valeur doit être encodée au format interne Grist ["L", [ids]],
+   sinon le moteur la stocke comme une cellule en erreur (#KeyError). */
+function valeurPromos(promosTxt) {
+  return MODE_REF ? ["L", idsPromos(promosTxt)] : promosTxt;
+}
+
 /* Écritures : ajouts [{fields}], mises à jour [{id, fields}]. */
 async function ecrire(tableId, ajouts, maj) {
   var t = grist.getTable(tableId);
@@ -394,11 +401,11 @@ function construireLot(colIds) {
       f = {};
       f[colIds.nom] = l.nom;
       f[colIds.prenom] = l.prenom;
-      f[colIds.promos] = MODE_REF ? idsPromos(l.promos) : l.promos;
+      f[colIds.promos] = valeurPromos(l.promos);
       ajouts.push({ fields: f });
     } else if (l.statut === "maj") {
       f = {};
-      f[colIds.promos] = MODE_REF ? idsPromos(l.promos) : l.promos;
+      f[colIds.promos] = valeurPromos(l.promos);
       maj.push({ id: l.id, fields: f });
     }
   });
@@ -453,7 +460,7 @@ async function synchroniser() {
 
 /* État initial + version (permet de vérifier que Grist charge bien
    la dernière version du fichier hébergé, sans cache). */
-var VERSION = "v7";
+var VERSION = "v8";
 document.getElementById("status").textContent = "Chargement…";
 document.getElementById("info").textContent = "Widget " + VERSION;
 
@@ -519,6 +526,6 @@ function demarrer() {
   essayer();
 })();
 </script>
-<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092" integrity="sha512-UKNk8GbxkABxKcXYuLkO16EleLGUkcvJWtpSNmExE0Too3ZaFAxTscNWEc1OdAv5/BikHawapSCaiD2XCmp+Bw==" nonce="T6ukHoXz9wlZBAO8zKQ+ng==" data-cf-beacon='{"version":"2024.11.0","token":"36b4216ae2dc4d5488c249161e71fe1e","spa":2}' crossorigin="anonymous"></script>
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092" integrity="sha512-UKNk8GbxkABxKcXYuLkO16EleLGUkcvJWtpSNmExE0Too3ZaFAxTscNWEc1OdAv5/BikHawapSCaiD2XCmp+Bw==" nonce="xixpqdqBUJ+ne+nggxSPWg==" data-cf-beacon='{"version":"2024.11.0","token":"36b4216ae2dc4d5488c249161e71fe1e","spa":2}' crossorigin="anonymous"></script>
 </body>
 </html>

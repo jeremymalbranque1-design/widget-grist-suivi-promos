@@ -33,7 +33,7 @@
   <div class="bar">
     <input id="q" type="search" placeholder="Rechercher un nom…" />
     <button id="refresh" title="Recharger l'aperçu">&#8635;</button>
-    <button id="sync">Synchroniser</button>
+    <button id="sync" disabled>Synchroniser</button>
     <span id="status"></span>
   </div>
   <div id="info"></div>
@@ -324,7 +324,7 @@ function afficher() {
     etat.ajouts + " à ajouter · " + etat.majs + " à mettre à jour · " +
     etat.lignes.length + " élève(s) au total";
   document.getElementById("info").textContent = etat.promosLues.length
-    ? "Promos lues : " + etat.promosLues[0] + " → " + etat.promosLues[etat.promosLues.length - 1] +
+    ? "Widget " + VERSION + " · Promos lues : " + etat.promosLues[0] + " → " + etat.promosLues[etat.promosLues.length - 1] +
       " (" + etat.promosLues.length + " tables)" +
       (etat.promosManquantes.length ? " · " + etat.promosManquantes.length +
         " ligne(s) à créer dans la table " + TABLE_PROMOS_REF : "")
@@ -413,6 +413,20 @@ async function synchroniser() {
   await analyser();
 }
 
+/* État initial + version (permet de vérifier que Grist charge bien
+   la dernière version du fichier hébergé, sans cache). */
+var VERSION = "v4";
+document.getElementById("status").textContent = "Chargement\u2026";
+document.getElementById("info").textContent = "Widget " + VERSION;
+setTimeout(function () {
+  if (!etat.pret) {
+    document.getElementById("err").textContent =
+      "Chargement en attente \u2014 tr\u00e8s probablement l\u2019autorisation \u00ab acc\u00e8s complet " +
+      "au document \u00bb n\u2019a pas \u00e9t\u00e9 accord\u00e9e au widget : acceptez la banni\u00e8re affich\u00e9e " +
+      "au-dessus du widget (ou son menu \u22ee), puis cliquez sur \u21bb.";
+  }
+}, 6000);
+
 document.getElementById("q").addEventListener("input", afficher);
 document.getElementById("refresh").addEventListener("click", analyser);
 document.getElementById("sync").addEventListener("click", synchroniser);
@@ -424,6 +438,6 @@ grist.ready({ requiredAccess: "full" });
 grist.onRecords(analyser);
 analyser();
 </script>
-<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092" integrity="sha512-UKNk8GbxkABxKcXYuLkO16EleLGUkcvJWtpSNmExE0Too3ZaFAxTscNWEc1OdAv5/BikHawapSCaiD2XCmp+Bw==" nonce="DX4fgb6D58VLqHiFvAn3pA==" data-cf-beacon='{"version":"2024.11.0","token":"36b4216ae2dc4d5488c249161e71fe1e","spa":2}' crossorigin="anonymous"></script>
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092" integrity="sha512-UKNk8GbxkABxKcXYuLkO16EleLGUkcvJWtpSNmExE0Too3ZaFAxTscNWEc1OdAv5/BikHawapSCaiD2XCmp+Bw==" nonce="lt5gk6KPVB6rdpA+4777IA==" data-cf-beacon='{"version":"2024.11.0","token":"36b4216ae2dc4d5488c249161e71fe1e","spa":2}' crossorigin="anonymous"></script>
 </body>
 </html>

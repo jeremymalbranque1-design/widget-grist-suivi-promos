@@ -151,17 +151,25 @@ function colParNom(fields, cible) {
   return null;
 }
 
-/* Valeur brute d'une colonne liste de références -> [id, ...], ou null. */
+/* Valeur brute d'une colonne liste de références -> [id, ...],
+   ou null si la cellule est en erreur ou illisible. Formats acceptés :
+   ["L", id1, id2, ...] (encodage Grist à plat), [id1, id2], ou texte JSON. */
 function versListeIds(brut) {
   if (brut == null) return [];
   if (Array.isArray(brut)) {
-    if (brut.length === 2 && brut[0] === "L" && Array.isArray(brut[1])) return brut[1];
+    if (brut.length && brut[0] === "L") return brut.slice(1);
+    if (brut.length && brut[0] === "E") return null;
+    if (brut.length && brut[0] === "r") return null;
     return brut;
   }
   if (typeof brut === "string") {
     try {
       var v = JSON.parse(brut);
-      if (Array.isArray(v)) return (v.length === 2 && v[0] === "L") ? v[1] : v;
+      if (Array.isArray(v)) {
+        if (v.length && v[0] === "L") return v.slice(1);
+        if (v.length && v[0] === "E") return null;
+        return v;
+      }
     } catch (e) { }
   }
   return null;
@@ -375,11 +383,12 @@ function idsPromos(promosTxt) {
   return ids;
 }
 
-/* Valeur de la colonne Promos : en mode liste de références,
-   la valeur doit être encodée au format interne Grist ["L", [ids]],
-   sinon le moteur la stocke comme une cellule en erreur (#KeyError). */
+/* Valeur de la colonne Promos : en mode liste de références, la
+   valeur doit suivre l'encodage À PLAT de Grist : ["L", id1, id2, ...]
+   (cf. objtypes.py : ['L'] + items ; PAS ["L", [id1, id2]] imbriqué,
+   et pas [id1, id2] brut — les deux produisent des cellules en erreur). */
 function valeurPromos(promosTxt) {
-  return MODE_REF ? ["L", idsPromos(promosTxt)] : promosTxt;
+  return MODE_REF ? ["L"].concat(idsPromos(promosTxt)) : promosTxt;
 }
 
 /* Écritures : ajouts [{fields}], mises à jour [{id, fields}]. */
@@ -460,7 +469,7 @@ async function synchroniser() {
 
 /* État initial + version (permet de vérifier que Grist charge bien
    la dernière version du fichier hébergé, sans cache). */
-var VERSION = "v8";
+var VERSION = "v9";
 document.getElementById("status").textContent = "Chargement…";
 document.getElementById("info").textContent = "Widget " + VERSION;
 
@@ -526,6 +535,6 @@ function demarrer() {
   essayer();
 })();
 </script>
-<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092" integrity="sha512-UKNk8GbxkABxKcXYuLkO16EleLGUkcvJWtpSNmExE0Too3ZaFAxTscNWEc1OdAv5/BikHawapSCaiD2XCmp+Bw==" nonce="xixpqdqBUJ+ne+nggxSPWg==" data-cf-beacon='{"version":"2024.11.0","token":"36b4216ae2dc4d5488c249161e71fe1e","spa":2}' crossorigin="anonymous"></script>
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092" integrity="sha512-UKNk8GbxkABxKcXYuLkO16EleLGUkcvJWtpSNmExE0Too3ZaFAxTscNWEc1OdAv5/BikHawapSCaiD2XCmp+Bw==" nonce="MhjqrRJ+HEDhlXIlzvyG2w==" data-cf-beacon='{"version":"2024.11.0","token":"36b4216ae2dc4d5488c249161e71fe1e","spa":2}' crossorigin="anonymous"></script>
 </body>
 </html>
